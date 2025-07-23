@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/en/2.0.0/).
 
+## [3.1.2] - 2025-07-23
+
+### Fixed
+- **Critical Architecture Issue**: Completely eliminated all inline JavaScript from PHP files
+- **Performance Problem**: Dashboard now loads instantly without blocking API calls
+- **AJAX Reliability**: Fixed dashboard widget not updating due to missing ajaxurl variable
+- **Code Standards Violation**: Removed all embedded script tags from PHP output
+
+### Changed
+- **Complete JS Refactor**: Moved from inline scripts to clean data-attribute approach
+- **External JS Architecture**: All dashboard functionality now in `smarty-gl-admin.js`
+- **Proper AJAX Handling**: Added fallback AJAX URL detection and comprehensive error handling
+- **Clean Separation**: PHP generates clean HTML with data attributes, JS reads and acts
+
+### Improved
+- **WordPress Best Practices**: Now follows WordPress coding standards for JS/PHP separation
+- **Debugging**: Added comprehensive console logging for troubleshooting
+- **Error Handling**: Graceful fallbacks for failed AJAX requests and missing DOM elements
+- **Maintainability**: Clean, readable code structure with proper function separation
+- **Performance**: Eliminated render-blocking inline JavaScript
+
+### Removed
+- All inline `<script>` tags from PHP files
+- Test AJAX handlers and debugging code
+- Embedded JavaScript within HTML output
+
 ## [3.1.1] - 2025-07-23
 
 ### Fixed

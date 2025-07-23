@@ -80,68 +80,129 @@ jQuery(document).ready(function($) {
         }
     });
     
-    // Dashboard widget functionality
-    window.smartyGLDashboard = {
-        loadDataWithCache: function(nonce) {
-            setTimeout(function() {
-                $.ajax({
-                    url: ajaxurl,
-                    type: "POST",
-                    data: {
-                        action: "smarty_gl_dashboard_data",
-                        nonce: nonce
-                    },
-                    timeout: 15000,
-                    success: function(response) {
-                        if (response.success) {
-                            $("#smarty-gl-data-rows").html(response.data.html);
-                            $("#smarty-gl-last-updated").html(smartyGLAdmin.strings.lastUpdated + " " + response.data.timestamp);
-                        }
-                    },
-                    error: function(xhr, status, error) {
-                        console.log('Background update failed:', error);
-                    }
-                });
-            }, 1000);
-        },
+    // Dashboard widget functionality - Clean external JS approach
+    function initDashboardWidget() {
+        var $triggers = $('.smarty-gl-trigger');
         
-        loadDataNoCache: function(nonce) {
-            $.ajax({
-                url: ajaxurl,
-                type: "POST",
-                data: {
-                    action: "smarty_gl_dashboard_data",
-                    nonce: nonce
-                },
-                timeout: 15000,
-                success: function(response) {
-                    if (response.success) {
-                        $("#smarty-gl-loading").hide();
-                        $("#smarty-gl-data-rows").html(response.data.html);
-                        $("#smarty-gl-last-updated").html(smartyGLAdmin.strings.lastUpdated + " " + response.data.timestamp);
-                        $("#smarty-gl-content").show();
-                    } else {
-                        $("#smarty-gl-loading").html(
-                            '<div class="smarty-gl-alert smarty-gl-alert-error">' +
-                            '<strong>' + smartyGLAdmin.strings.error + '</strong> ' + 
-                            (response.data || smartyGLAdmin.strings.failedToLoad) +
-                            '</div>'
-                        );
-                    }
-                },
-                error: function(xhr, status, error) {
-                    var errorMsg = smartyGLAdmin.strings.connectionError;
-                    if (status === "timeout") {
-                        errorMsg = smartyGLAdmin.strings.timeoutError;
-                    }
-                    $("#smarty-gl-loading").html(
-                        '<div class="smarty-gl-alert smarty-gl-alert-warning">' +
-                        '<strong>' + smartyGLAdmin.strings.notice + '</strong> ' + errorMsg +
-                        ' <button onclick="location.reload()" class="smarty-gl-btn smarty-gl-btn-secondary" style="margin-left: 10px;">' + smartyGLAdmin.strings.retry + '</button>' +
-                        '</div>'
-                    );
-                }
-            });
+        if ($triggers.length === 0) {
+            return; // No dashboard widget on this page
         }
-    };
+        
+        $triggers.each(function() {
+            var $trigger = $(this);
+            var action = $trigger.data('action');
+            var nonce = $trigger.data('nonce');
+            var ajaxUrl = (typeof smartyGLAdmin !== 'undefined' && smartyGLAdmin.ajaxurl) ? smartyGLAdmin.ajaxurl : ajaxurl;
+            
+            console.log('GitLab CI: Initializing', action, 'with nonce:', nonce);
+            console.log('GitLab CI: Using AJAX URL:', ajaxUrl);
+            
+            if (action === 'background-update') {
+                // Background update for cached data
+                setTimeout(function() {
+                    performAjaxRequest(ajaxUrl, nonce, true);
+                }, 1000);
+            } else if (action === 'initial-load') {
+                // Initial load for no cached data
+                performAjaxRequest(ajaxUrl, nonce, false);
+            }
+        });
+    }
+    
+    function performAjaxRequest(ajaxUrl, nonce, isBackgroundUpdate) {
+        console.log('GitLab CI: Performing AJAX request - Background:', isBackgroundUpdate);
+        
+        $.ajax({
+            url: ajaxUrl,
+            type: "POST",
+            data: {
+                action: "smarty_gl_dashboard_data",
+                nonce: nonce
+            },
+            timeout: 15000,
+            success: function(response) {
+                console.log('GitLab CI: AJAX Success:', response);
+                
+                if (response.success) {
+                    updateDashboardData(response.data, isBackgroundUpdate);
+                } else {
+                    showError(response.data || 'Failed to load GitLab data');
+                }
+            },
+            error: function(xhr, status, error) {
+                console.log('GitLab CI: AJAX Error:', status, error);
+                handleAjaxError(status, error, isBackgroundUpdate);
+            }
+        });
+    }
+    
+    function updateDashboardData(data, isBackgroundUpdate) {
+        var $dataRows = $("#smarty-gl-data-rows");
+        var $lastUpdated = $("#smarty-gl-last-updated");
+        var $loading = $("#smarty-gl-loading");
+        var $content = $("#smarty-gl-content");
+        
+        console.log('GitLab CI: Updating DOM - Elements found:', {
+            dataRows: $dataRows.length,
+            lastUpdated: $lastUpdated.length,
+            loading: $loading.length,
+            content: $content.length
+        });
+        
+        if ($dataRows.length > 0) {
+            $dataRows.html(data.html);
+        }
+        
+        if ($lastUpdated.length > 0) {
+            $lastUpdated.html('Last updated: ' + data.timestamp);
+        }
+        
+        if (!isBackgroundUpdate) {
+            // For initial load, show content and hide loading
+            if ($loading.length > 0) {
+                $loading.hide();
+            }
+            if ($content.length > 0) {
+                $content.show();
+            }
+        }
+        
+        console.log('GitLab CI: DOM update complete');
+    }
+    
+    function showError(message) {
+        var $loading = $("#smarty-gl-loading");
+        if ($loading.length > 0) {
+            $loading.html(
+                '<div class="smarty-gl-alert smarty-gl-alert-error">' +
+                '<strong>Error:</strong> ' + message +
+                '</div>'
+            );
+        }
+    }
+    
+    function handleAjaxError(status, error, isBackgroundUpdate) {
+        if (isBackgroundUpdate) {
+            console.log('GitLab CI: Background update failed, ignoring silently');
+            return;
+        }
+        
+        var errorMsg = "Connection timeout or error";
+        if (status === "timeout") {
+            errorMsg = "Request timed out - GitLab API may be slow";
+        }
+        
+        var $loading = $("#smarty-gl-loading");
+        if ($loading.length > 0) {
+            $loading.html(
+                '<div class="smarty-gl-alert smarty-gl-alert-warning">' +
+                '<strong>Notice:</strong> ' + errorMsg +
+                ' <button onclick="location.reload()" class="smarty-gl-btn smarty-gl-btn-secondary" style="margin-left: 10px;">Retry</button>' +
+                '</div>'
+            );
+        }
+    }
+    
+    // Initialize dashboard widget when DOM is ready
+    initDashboardWidget();
 });

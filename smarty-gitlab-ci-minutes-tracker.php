@@ -2,7 +2,7 @@
 /**
  * Plugin Name:  SM - GitLab CI/CD Minutes Tracker
  * Description:  Tracks Compute Usage quotas for GitLab namespaces and groups (matches Usage Quotas dashboard).
- * Version:      3.1.1
+ * Version:      3.1.2
  * Author:       Smarty Studio | Martin Nestorov
  * Author URI:   https://github.com/mnestorov
  * License:      GPL-2.0-or-later
@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 define( 'SMARTY_GL_SETTINGS', 'smarty_gl_settings' );
-define( 'SMARTY_GL_VERSION', '3.1.1' );
+define( 'SMARTY_GL_VERSION', '3.1.2' );
 define( 'SMARTY_GL_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'SMARTY_GL_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
 
@@ -63,8 +63,12 @@ add_action( 'wp_ajax_smarty_gl_dashboard_data', 'smarty_gl_ajax_dashboard_data' 
  * Handle AJAX request for dashboard data.
  */
 function smarty_gl_ajax_dashboard_data() {
+    // Debug logging
+    //error_log('AJAX handler called: smarty_gl_ajax_dashboard_data');
+    
     // Verify nonce
     if (!wp_verify_nonce($_POST['nonce'], 'smarty_gl_dashboard')) {
+        //error_log('AJAX nonce verification failed');
         wp_die(__('Security check failed', 'smarty-gitlab-ci-minutes-tracker'));
     }
 
@@ -72,13 +76,21 @@ function smarty_gl_ajax_dashboard_data() {
     $token = $options['gitlab_token'] ?? '';
     $sources = $options['sources'] ?? [];
 
+    //error_log('AJAX: Token exists: ' . (!empty($token) ? 'YES' : 'NO'));
+    //error_log('AJAX: Sources count: ' . count($sources));
+
     if (empty($token) || empty($sources)) {
+        //error_log('AJAX: Configuration missing, sending error response');
         wp_send_json_error(__('Configuration missing', 'smarty-gitlab-ci-minutes-tracker'));
     }
 
     $html = '';
-    foreach ($sources as $source) {
+    //error_log('AJAX: Starting data fetch for ' . count($sources) . ' sources');
+    
+    foreach ($sources as $index => $source) {
+        //error_log('AJAX: Fetching data for source ' . ($index + 1) . ': ' . $source['name']);
         $data = smarty_gl_fetch_gitlab_data($source['type'], $source['identifier'], $token);
+        //error_log('AJAX: Data fetched for ' . $source['name'] . ' - Status: ' . $data['status']);
         
         $usage_percent = $data['compute_limit'] > 0 ? ($data['compute_used'] / $data['compute_limit']) * 100 : 0;
         $usage_percent = min(100, $usage_percent);
@@ -118,6 +130,7 @@ function smarty_gl_ajax_dashboard_data() {
         }
     }
 
+    //error_log('AJAX response successful, HTML length: ' . strlen($html));
     wp_send_json_success([
         'html' => $html,
         'timestamp' => current_time('M j, Y g:i A')
@@ -150,8 +163,9 @@ function smarty_gl_enqueue_admin_styles( $hook ) {
         wp_enqueue_style( 'smarty-gl-admin', SMARTY_GL_PLUGIN_URL . 'css/smarty-gl-admin.css', [], SMARTY_GL_VERSION );
         wp_enqueue_script( 'smarty-gl-admin', SMARTY_GL_PLUGIN_URL . 'js/smarty-gl-admin.js', ['jquery'], SMARTY_GL_VERSION, true );
         
-        // Pass translations to JavaScript
+        // Pass AJAX URL and translations to JavaScript
         wp_localize_script( 'smarty-gl-admin', 'smartyGLAdmin', [
+            'ajaxurl' => admin_url('admin-ajax.php'),
             'strings' => [
                 'lastUpdated' => __('Last updated:', 'smarty-gitlab-ci-minutes-tracker'),
                 'error' => __('Error:', 'smarty-gitlab-ci-minutes-tracker'),
@@ -395,7 +409,7 @@ function smarty_gl_fetch_gitlab_data( $type, $identifier, $token ) {
                     $result_data['compute_used'] = $total_usage;
                     $result_data['status'] = 'success';
                     
-                    error_log('GitLab Group Usage Calculated: ' . $total_usage . ' minutes for group: ' . $identifier);
+                    //error_log('GitLab Group Usage Calculated: ' . $total_usage . ' minutes for group: ' . $identifier);
                 } else {
                     $result_data['error'] = __('Group data not found or insufficient permissions', 'smarty-gitlab-ci-minutes-tracker');
                     $result_data['status'] = 'error';
@@ -413,7 +427,7 @@ function smarty_gl_fetch_gitlab_data( $type, $identifier, $token ) {
     } catch (Exception $e) {
         $result_data['error'] = $e->getMessage();
         $result_data['status'] = 'error';
-        error_log('GitLab API Error: ' . $e->getMessage());
+        //error_log('GitLab API Error: ' . $e->getMessage());
     }
     
     set_transient($cache_key, $result_data, 900); // Cache for 15 minutes - longer to reduce API calls
@@ -435,7 +449,7 @@ function smarty_gl_calculate_pipeline_usage($group_identifier, $token, $args) {
     $projects_response = wp_remote_get( $projects_url, $args );
     
     if (is_wp_error($projects_response)) {
-        error_log('GitLab API Error (projects): ' . $projects_response->get_error_message());
+        //error_log('GitLab API Error (projects): ' . $projects_response->get_error_message());
         return 0;
     }
     
@@ -451,7 +465,7 @@ function smarty_gl_calculate_pipeline_usage($group_identifier, $token, $args) {
     
     foreach ($projects as $project) {
         if ($projects_checked >= $max_projects) {
-            error_log('GitLab: Limiting to ' . $max_projects . ' projects for performance');
+            //error_log('GitLab: Limiting to ' . $max_projects . ' projects for performance');
             break;
         }
         
@@ -466,7 +480,7 @@ function smarty_gl_calculate_pipeline_usage($group_identifier, $token, $args) {
         
         $pipelines_response = wp_remote_get( $pipelines_url, $args );
         if (is_wp_error($pipelines_response)) {
-            error_log('GitLab API Error (pipelines): ' . $pipelines_response->get_error_message());
+            //error_log('GitLab API Error (pipelines): ' . $pipelines_response->get_error_message());
             continue;
         }
         
@@ -516,7 +530,7 @@ function smarty_gl_calculate_pipeline_usage($group_identifier, $token, $args) {
     // Cache the calculation for 30 minutes since it's expensive
     set_transient($calc_cache_key, $total_minutes, 1800);
     
-    error_log('Calculated usage from pipelines: ' . $total_minutes . ' minutes from ' . $projects_checked . ' projects (limited for performance)');
+    //error_log('Calculated usage from pipelines: ' . $total_minutes . ' minutes from ' . $projects_checked . ' projects (limited for performance)');
     return $total_minutes;
 }
 
@@ -580,14 +594,8 @@ function smarty_gl_dashboard_widget_content() {
         smarty_gl_render_dashboard_table($sources, $token);
         echo '</div>';
         
-        // Then update in background via external JS
-        echo '<script>
-        jQuery(document).ready(function($) {
-            if (window.smartyGLDashboard) {
-                smartyGLDashboard.loadDataWithCache("' . wp_create_nonce('smarty_gl_dashboard') . '");
-            }
-        });
-        </script>';
+        // Trigger background update via external JS
+        echo '<div class="smarty-gl-trigger" data-action="background-update" data-nonce="' . wp_create_nonce('smarty_gl_dashboard') . '" style="display:none;"></div>';
     } else {
         // No cached data - show loading and fetch via AJAX
         echo '<div id="smarty-gl-loading">';
@@ -616,13 +624,8 @@ function smarty_gl_dashboard_widget_content() {
         echo '</p>';
         echo '</div>';
         
-        echo '<script>
-        jQuery(document).ready(function($) {
-            if (window.smartyGLDashboard) {
-                smartyGLDashboard.loadDataNoCache("' . wp_create_nonce('smarty_gl_dashboard') . '");
-            }
-        });
-        </script>';
+        // Trigger initial load via external JS
+        echo '<div class="smarty-gl-trigger" data-action="initial-load" data-nonce="' . wp_create_nonce('smarty_gl_dashboard') . '" style="display:none;"></div>';
     }
     
     echo '</div>';
