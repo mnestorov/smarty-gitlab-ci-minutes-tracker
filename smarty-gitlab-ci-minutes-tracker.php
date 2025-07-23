@@ -2,7 +2,7 @@
 /**
  * Plugin Name:  SM - GitLab CI/CD Minutes Tracker
  * Description:  Tracks Compute Usage quotas for GitLab namespaces and groups (matches Usage Quotas dashboard).
- * Version:      3.1.0
+ * Version:      3.1.1
  * Author:       Smarty Studio | Martin Nestorov
  * Author URI:   https://github.com/mnestorov
  * License:      GPL-2.0-or-later
@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 define( 'SMARTY_GL_SETTINGS', 'smarty_gl_settings' );
-define( 'SMARTY_GL_VERSION', '3.1.0' );
+define( 'SMARTY_GL_VERSION', '3.1.1' );
 define( 'SMARTY_GL_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'SMARTY_GL_PLUGIN_PATH', plugin_dir_path( __FILE__ ) );
 
@@ -55,6 +55,76 @@ add_action( 'admin_init', 'smarty_gl_admin_init' );
 add_action( 'admin_enqueue_scripts', 'smarty_gl_enqueue_admin_styles' );
 
 /**
+ * AJAX handler for dashboard data.
+ */
+add_action( 'wp_ajax_smarty_gl_dashboard_data', 'smarty_gl_ajax_dashboard_data' );
+
+/**
+ * Handle AJAX request for dashboard data.
+ */
+function smarty_gl_ajax_dashboard_data() {
+    // Verify nonce
+    if (!wp_verify_nonce($_POST['nonce'], 'smarty_gl_dashboard')) {
+        wp_die(__('Security check failed', 'smarty-gitlab-ci-minutes-tracker'));
+    }
+
+    $options = get_option( SMARTY_GL_SETTINGS );
+    $token = $options['gitlab_token'] ?? '';
+    $sources = $options['sources'] ?? [];
+
+    if (empty($token) || empty($sources)) {
+        wp_send_json_error(__('Configuration missing', 'smarty-gitlab-ci-minutes-tracker'));
+    }
+
+    $html = '';
+    foreach ($sources as $source) {
+        $data = smarty_gl_fetch_gitlab_data($source['type'], $source['identifier'], $token);
+        
+        $usage_percent = $data['compute_limit'] > 0 ? ($data['compute_used'] / $data['compute_limit']) * 100 : 0;
+        $usage_percent = min(100, $usage_percent);
+        
+        $html .= '<tr>';
+        $html .= '<td>';
+        $html .= '<strong>' . esc_html($source['name']) . '</strong><br>';
+        $html .= '<small style="color: #646970;">' . esc_html(ucfirst($source['type'])) . '</small>';
+        $html .= '</td>';
+        $html .= '<td>' . esc_html(number_format($data['compute_used'])) . '</td>';
+        $html .= '<td>' . esc_html(number_format($data['compute_limit'])) . '</td>';
+        $html .= '<td>';
+        $html .= '<div style="background: #f0f0f1; border-radius: 10px; height: 8px; overflow: hidden;">';
+        $html .= '<div style="background: #0073aa; height: 100%; width: ' . esc_attr($usage_percent) . '%; transition: width 0.3s ease;"></div>';
+        $html .= '</div>';
+        $html .= '<small style="color: #646970;">' . esc_html(round($usage_percent)) . '%</small>';
+        $html .= '</td>';
+        $html .= '<td>';
+        
+        if ($data['error']) {
+            $html .= '<span class="smarty-gl-status-badge smarty-gl-status-error">' . esc_html__('Error', 'smarty-gitlab-ci-minutes-tracker') . '</span>';
+        } elseif ($usage_percent >= 90) {
+            $html .= '<span class="smarty-gl-status-badge smarty-gl-status-warning">' . esc_html__('High', 'smarty-gitlab-ci-minutes-tracker') . '</span>';
+        } else {
+            $html .= '<span class="smarty-gl-status-badge smarty-gl-status-success">' . esc_html__('Normal', 'smarty-gitlab-ci-minutes-tracker') . '</span>';
+        }
+        
+        $html .= '</td>';
+        $html .= '</tr>';
+        
+        if ($data['error']) {
+            $html .= '<tr>';
+            $html .= '<td colspan="5" style="padding: 8px 16px; background: #fcf0f1; border-left: 3px solid #d63638; font-size: 12px; color: #b32d2e;">';
+            $html .= esc_html($data['error']);
+            $html .= '</td>';
+            $html .= '</tr>';
+        }
+    }
+
+    wp_send_json_success([
+        'html' => $html,
+        'timestamp' => current_time('M j, Y g:i A')
+    ]);
+}
+
+/**
  * Initializes admin settings.
  */
 function smarty_gl_admin_init() {
@@ -79,6 +149,19 @@ function smarty_gl_enqueue_admin_styles( $hook ) {
     if ( $hook === 'toplevel_page_smarty-gitlab-settings' || $hook === 'index.php' ) {
         wp_enqueue_style( 'smarty-gl-admin', SMARTY_GL_PLUGIN_URL . 'css/smarty-gl-admin.css', [], SMARTY_GL_VERSION );
         wp_enqueue_script( 'smarty-gl-admin', SMARTY_GL_PLUGIN_URL . 'js/smarty-gl-admin.js', ['jquery'], SMARTY_GL_VERSION, true );
+        
+        // Pass translations to JavaScript
+        wp_localize_script( 'smarty-gl-admin', 'smartyGLAdmin', [
+            'strings' => [
+                'lastUpdated' => __('Last updated:', 'smarty-gitlab-ci-minutes-tracker'),
+                'error' => __('Error:', 'smarty-gitlab-ci-minutes-tracker'),
+                'notice' => __('Notice:', 'smarty-gitlab-ci-minutes-tracker'),
+                'failedToLoad' => __('Failed to load GitLab data', 'smarty-gitlab-ci-minutes-tracker'),
+                'connectionError' => __('Connection timeout or error', 'smarty-gitlab-ci-minutes-tracker'),
+                'timeoutError' => __('Request timed out - GitLab API may be slow', 'smarty-gitlab-ci-minutes-tracker'),
+                'retry' => __('Retry', 'smarty-gitlab-ci-minutes-tracker')
+            ]
+        ]);
     }
 }
 
@@ -292,7 +375,7 @@ function smarty_gl_fetch_gitlab_data( $type, $identifier, $token ) {
             'Authorization' => 'Bearer ' . $token,
             'Content-Type' => 'application/json'
         ],
-        'timeout' => 30
+        'timeout' => 10 // Reduced timeout for faster dashboard loading
     ];
     
     try {
@@ -333,18 +416,26 @@ function smarty_gl_fetch_gitlab_data( $type, $identifier, $token ) {
         error_log('GitLab API Error: ' . $e->getMessage());
     }
     
-    set_transient($cache_key, $result_data, 300); // Cache for 5 minutes
+    set_transient($cache_key, $result_data, 900); // Cache for 15 minutes - longer to reduce API calls
     return $result_data;
 }
 
 /**
- * Calculate pipeline usage for current month.
+ * Calculate pipeline usage for current month - Optimized for performance.
  */
 function smarty_gl_calculate_pipeline_usage($group_identifier, $token, $args) {
+    // Check cache first for this calculation
+    $calc_cache_key = 'smarty_gl_calc_' . md5($group_identifier . date('Y-m'));
+    $cached_calc = get_transient($calc_cache_key);
+    if ($cached_calc !== false) {
+        return $cached_calc;
+    }
+
     $projects_url = sprintf('https://gitlab.com/api/v4/groups/%s/projects?include_subgroups=true&per_page=100', urlencode($group_identifier));
     $projects_response = wp_remote_get( $projects_url, $args );
     
     if (is_wp_error($projects_response)) {
+        error_log('GitLab API Error (projects): ' . $projects_response->get_error_message());
         return 0;
     }
     
@@ -355,19 +446,27 @@ function smarty_gl_calculate_pipeline_usage($group_identifier, $token, $args) {
     
     $total_minutes = 0;
     $current_month_start = date('Y-m-01T00:00:00Z');
+    $projects_checked = 0;
+    $max_projects = 100; // Reasonable limit to prevent excessive API calls
     
     foreach ($projects as $project) {
+        if ($projects_checked >= $max_projects) {
+            error_log('GitLab: Limiting to ' . $max_projects . ' projects for performance');
+            break;
+        }
+        
         $project_id = $project['id'];
         
-        // Get pipelines for current month
+        // Get pipelines for current month - limit to recent ones
         $pipelines_url = sprintf(
-            'https://gitlab.com/api/v4/projects/%s/pipelines?updated_after=%s&per_page=100', 
+            'https://gitlab.com/api/v4/projects/%s/pipelines?updated_after=%s&per_page=100&order_by=updated_at&sort=desc', 
             $project_id,
             urlencode($current_month_start)
         );
         
         $pipelines_response = wp_remote_get( $pipelines_url, $args );
         if (is_wp_error($pipelines_response)) {
+            error_log('GitLab API Error (pipelines): ' . $pipelines_response->get_error_message());
             continue;
         }
         
@@ -376,7 +475,14 @@ function smarty_gl_calculate_pipeline_usage($group_identifier, $token, $args) {
             continue;
         }
         
+        $pipelines_checked = 0;
+        $max_pipelines = 50; // Reasonable limit pipelines per project
+        
         foreach ($pipelines as $pipeline) {
+            if ($pipelines_checked >= $max_pipelines) {
+                break;
+            }
+            
             $pipeline_id = $pipeline['id'];
             
             // Get jobs for this pipeline
@@ -400,10 +506,17 @@ function smarty_gl_calculate_pipeline_usage($group_identifier, $token, $args) {
                     }
                 }
             }
+            
+            $pipelines_checked++;
         }
+        
+        $projects_checked++;
     }
     
-    error_log('Calculated usage from pipelines: ' . $total_minutes . ' minutes from ' . count($projects) . ' projects');
+    // Cache the calculation for 30 minutes since it's expensive
+    set_transient($calc_cache_key, $total_minutes, 1800);
+    
+    error_log('Calculated usage from pipelines: ' . $total_minutes . ' minutes from ' . $projects_checked . ' projects (limited for performance)');
     return $total_minutes;
 }
 
@@ -420,14 +533,14 @@ function smarty_gl_add_dashboard_widget() {
 add_action( 'wp_dashboard_setup', 'smarty_gl_add_dashboard_widget' );
 
 /**
- * Dashboard widget content.
+ * Dashboard widget content - Async loading for better performance.
  */
 function smarty_gl_dashboard_widget_content() {
     $options = get_option( SMARTY_GL_SETTINGS );
     $token = $options['gitlab_token'] ?? '';
     $sources = $options['sources'] ?? [];
     
-    echo '<div class="smarty-gl-widget">';
+    echo '<div class="smarty-gl-widget" id="smarty-gl-widget">';
     
     if (empty($token)) {
         echo '<div class="smarty-gl-setup-card">';
@@ -451,7 +564,74 @@ function smarty_gl_dashboard_widget_content() {
         return;
     }
     
-    // Data table for detailed view
+    // Show cached data immediately if available, then update via AJAX
+    $has_cached_data = false;
+    foreach ($sources as $source) {
+        $cache_key = 'smarty_gl_data_' . md5($source['type'] . '_' . $source['identifier']);
+        if (get_transient($cache_key) !== false) {
+            $has_cached_data = true;
+            break;
+        }
+    }
+    
+    if ($has_cached_data) {
+        // Show cached data immediately for fast loading
+        echo '<div id="smarty-gl-content">';
+        smarty_gl_render_dashboard_table($sources, $token);
+        echo '</div>';
+        
+        // Then update in background via external JS
+        echo '<script>
+        jQuery(document).ready(function($) {
+            if (window.smartyGLDashboard) {
+                smartyGLDashboard.loadDataWithCache("' . wp_create_nonce('smarty_gl_dashboard') . '");
+            }
+        });
+        </script>';
+    } else {
+        // No cached data - show loading and fetch via AJAX
+        echo '<div id="smarty-gl-loading">';
+        echo '<div class="smarty-gl-alert smarty-gl-alert-info">';
+        echo '<div class="smarty-gl-loading" style="margin-right: 10px;"></div>';
+        echo esc_html__('Loading GitLab usage data...', 'smarty-gitlab-ci-minutes-tracker');
+        echo '</div>';
+        echo '</div>';
+        
+        echo '<div id="smarty-gl-content" style="display: none;">';
+        echo '<table class="smarty-gl-data-table">';
+        echo '<thead>';
+        echo '<tr>';
+        echo '<th>' . esc_html__('Source', 'smarty-gitlab-ci-minutes-tracker') . '</th>';
+        echo '<th>' . esc_html__('Usage', 'smarty-gitlab-ci-minutes-tracker') . '</th>';
+        echo '<th>' . esc_html__('Limit', 'smarty-gitlab-ci-minutes-tracker') . '</th>';
+        echo '<th>' . esc_html__('Progress', 'smarty-gitlab-ci-minutes-tracker') . '</th>';
+        echo '<th>' . esc_html__('Status', 'smarty-gitlab-ci-minutes-tracker') . '</th>';
+        echo '</tr>';
+        echo '</thead>';
+        echo '<tbody id="smarty-gl-data-rows"></tbody>';
+        echo '</table>';
+        echo '<p style="text-align: center; margin-top: 16px; color: #646970; font-size: 12px;">';
+        echo '<span id="smarty-gl-last-updated"></span>';
+        echo ' • <a href="' . admin_url('admin.php?page=smarty-gitlab-settings') . '" style="color: #0073aa;">' . esc_html__('Settings', 'smarty-gitlab-ci-minutes-tracker') . '</a>';
+        echo '</p>';
+        echo '</div>';
+        
+        echo '<script>
+        jQuery(document).ready(function($) {
+            if (window.smartyGLDashboard) {
+                smartyGLDashboard.loadDataNoCache("' . wp_create_nonce('smarty_gl_dashboard') . '");
+            }
+        });
+        </script>';
+    }
+    
+    echo '</div>';
+}
+
+/**
+ * Render dashboard table with data.
+ */
+function smarty_gl_render_dashboard_table($sources, $token) {
     echo '<table class="smarty-gl-data-table">';
     echo '<thead>';
     echo '<tr>';
@@ -462,10 +642,20 @@ function smarty_gl_dashboard_widget_content() {
     echo '<th>' . esc_html__('Status', 'smarty-gitlab-ci-minutes-tracker') . '</th>';
     echo '</tr>';
     echo '</thead>';
-    echo '<tbody>';
+    echo '<tbody id="smarty-gl-data-rows">';
     
     foreach ($sources as $source) {
-        $data = smarty_gl_fetch_gitlab_data($source['type'], $source['identifier'], $token);
+        $cache_key = 'smarty_gl_data_' . md5($source['type'] . '_' . $source['identifier']);
+        $data = get_transient($cache_key);
+        
+        if ($data === false) {
+            $data = [
+                'compute_used' => 0,
+                'compute_limit' => 400, // Default based on your GitLab plan
+                'error' => __('Loading...', 'smarty-gitlab-ci-minutes-tracker'),
+                'status' => 'loading'
+            ];
+        }
         
         $usage_percent = $data['compute_limit'] > 0 ? ($data['compute_used'] / $data['compute_limit']) * 100 : 0;
         $usage_percent = min(100, $usage_percent);
@@ -485,8 +675,10 @@ function smarty_gl_dashboard_widget_content() {
         echo '</td>';
         echo '<td>';
         
-        if ($data['error']) {
+        if ($data['error'] && $data['status'] !== 'loading') {
             echo '<span class="smarty-gl-status-badge smarty-gl-status-error">' . esc_html__('Error', 'smarty-gitlab-ci-minutes-tracker') . '</span>';
+        } elseif ($data['status'] === 'loading') {
+            echo '<span class="smarty-gl-status-badge smarty-gl-status-warning">' . esc_html__('Loading', 'smarty-gitlab-ci-minutes-tracker') . '</span>';
         } elseif ($usage_percent >= 90) {
             echo '<span class="smarty-gl-status-badge smarty-gl-status-warning">' . esc_html__('High', 'smarty-gitlab-ci-minutes-tracker') . '</span>';
         } else {
@@ -495,24 +687,13 @@ function smarty_gl_dashboard_widget_content() {
         
         echo '</td>';
         echo '</tr>';
-        
-        if ($data['error']) {
-            echo '<tr>';
-            echo '<td colspan="5" style="padding: 8px 16px; background: #fcf0f1; border-left: 3px solid #d63638; font-size: 12px; color: #b32d2e;">';
-            echo esc_html($data['error']);
-            echo '</td>';
-            echo '</tr>';
-        }
     }
     
     echo '</tbody>';
     echo '</table>';
-    
     echo '<p style="text-align: center; margin-top: 16px; color: #646970; font-size: 12px;">';
-    echo esc_html__('Last updated:', 'smarty-gitlab-ci-minutes-tracker') . ' ' . esc_html(current_time('M j, Y g:i A'));
+    echo '<span id="smarty-gl-last-updated">' . esc_html__('Last updated:', 'smarty-gitlab-ci-minutes-tracker') . ' ' . esc_html(current_time('M j, Y g:i A')) . '</span>';
     echo ' • <a href="' . admin_url('admin.php?page=smarty-gitlab-settings') . '" style="color: #0073aa;">' . esc_html__('Settings', 'smarty-gitlab-ci-minutes-tracker') . '</a>';
     echo '</p>';
-    
-    echo '</div>';
 }
 

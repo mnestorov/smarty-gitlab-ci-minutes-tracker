@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/en/2.0.0/).
 
+## [3.1.1] - 2025-07-23
+
+### Fixed
+- **Performance Issue**: Fixed slow dashboard loading by implementing asynchronous data loading
+- **Calculation Accuracy**: Corrected GitLab usage calculation limits (was showing 35/400 instead of correct 97/400)
+- **Code Organization**: Moved inline JavaScript from PHP to separate `smarty-gl-admin.js` file
+
+### Changed
+- Dashboard now loads instantly with cached data, updates in background
+- Increased API limits: projects (20→100), pipelines (10→50), per_page (20→100) for accurate calculations
+- Improved error handling with proper timeout messages and retry functionality
+- Better separation of concerns - JavaScript functions moved to external files
+
+### Improved
+- Better user experience with loading indicators and graceful error handling
+- Reduced inline code in PHP for cleaner architecture
+- Enhanced caching strategy with separate calculation cache (30 minutes)
+- Proper translation support for JavaScript strings via wp_localize_script
+
 ## [3.1.0] - 2025-07-23
 
 ### Added

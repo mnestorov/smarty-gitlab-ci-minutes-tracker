@@ -3,7 +3,7 @@
 ![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue)
 ![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple)
 ![License](https://img.shields.io/badge/License-GPL--2.0-green)
-![Version](https://img.shields.io/badge/Version-3.1.0-orange)
+![Version](https://img.shields.io/badge/Version-3.1.1-orange)
 
 - **Developed by:** Martin Nestorov 
     - Explore more at [nestorov.dev](https://github.com/mnestorov)

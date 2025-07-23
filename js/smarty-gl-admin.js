@@ -79,4 +79,69 @@ jQuery(document).ready(function($) {
             $(this).attr("placeholder", $(this).data("placeholder"));
         }
     });
+    
+    // Dashboard widget functionality
+    window.smartyGLDashboard = {
+        loadDataWithCache: function(nonce) {
+            setTimeout(function() {
+                $.ajax({
+                    url: ajaxurl,
+                    type: "POST",
+                    data: {
+                        action: "smarty_gl_dashboard_data",
+                        nonce: nonce
+                    },
+                    timeout: 15000,
+                    success: function(response) {
+                        if (response.success) {
+                            $("#smarty-gl-data-rows").html(response.data.html);
+                            $("#smarty-gl-last-updated").html(smartyGLAdmin.strings.lastUpdated + " " + response.data.timestamp);
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        console.log('Background update failed:', error);
+                    }
+                });
+            }, 1000);
+        },
+        
+        loadDataNoCache: function(nonce) {
+            $.ajax({
+                url: ajaxurl,
+                type: "POST",
+                data: {
+                    action: "smarty_gl_dashboard_data",
+                    nonce: nonce
+                },
+                timeout: 15000,
+                success: function(response) {
+                    if (response.success) {
+                        $("#smarty-gl-loading").hide();
+                        $("#smarty-gl-data-rows").html(response.data.html);
+                        $("#smarty-gl-last-updated").html(smartyGLAdmin.strings.lastUpdated + " " + response.data.timestamp);
+                        $("#smarty-gl-content").show();
+                    } else {
+                        $("#smarty-gl-loading").html(
+                            '<div class="smarty-gl-alert smarty-gl-alert-error">' +
+                            '<strong>' + smartyGLAdmin.strings.error + '</strong> ' + 
+                            (response.data || smartyGLAdmin.strings.failedToLoad) +
+                            '</div>'
+                        );
+                    }
+                },
+                error: function(xhr, status, error) {
+                    var errorMsg = smartyGLAdmin.strings.connectionError;
+                    if (status === "timeout") {
+                        errorMsg = smartyGLAdmin.strings.timeoutError;
+                    }
+                    $("#smarty-gl-loading").html(
+                        '<div class="smarty-gl-alert smarty-gl-alert-warning">' +
+                        '<strong>' + smartyGLAdmin.strings.notice + '</strong> ' + errorMsg +
+                        ' <button onclick="location.reload()" class="smarty-gl-btn smarty-gl-btn-secondary" style="margin-left: 10px;">' + smartyGLAdmin.strings.retry + '</button>' +
+                        '</div>'
+                    );
+                }
+            });
+        }
+    };
 });
