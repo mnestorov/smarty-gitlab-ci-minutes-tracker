@@ -1,6 +1,9 @@
 # SM - GitLab CI Minutes Tracker
 
-[![Licence](https://img.shields.io/badge/LICENSE-GPL2.0+-blue)](./LICENSE)
+![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue)
+![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple)
+![License](https://img.shields.io/badge/License-GPL--2.0-green)
+![Version](https://img.shields.io/badge/Version-3.1.0-orange)
 
 - **Developed by:** Martin Nestorov 
     - Explore more at [nestorov.dev](https://github.com/mnestorov)
@@ -9,11 +12,6 @@
 ## Overview
 
 A modern WordPress plugin that tracks GitLab compute usage quotas with real-time pipeline analytics and beautiful dashboards.
-
-![WordPress](https://img.shields.io/badge/WordPress-5.0%2B-blue)
-![PHP](https://img.shields.io/badge/PHP-7.4%2B-purple)
-![License](https://img.shields.io/badge/License-GPL--2.0-green)
-![Version](https://img.shields.io/badge/Version-3.1.0-orange)
 
 ## ✨ Features
 
